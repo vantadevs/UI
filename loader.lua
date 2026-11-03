@@ -2,7 +2,7 @@ if not game:IsLoaded() then
     game.Loaded:Wait()
 end
 
-local ROOT_BASE = "https://raw.githubusercontent.com/xDTaraZz/Roblox-Scripts/refs/heads/main/"
+local ROOT_BASE = "https://raw.githubusercontent.com/vantadevs/UI/main/"
 local BASE = ROOT_BASE .. "All%20Map/"
 local OLD_BASE = BASE .. "old/"
 local DISCORD = "discord.gg/FHVfmeSceA"
