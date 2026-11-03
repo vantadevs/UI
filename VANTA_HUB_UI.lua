@@ -1,3 +1,19 @@
+--[[
+     _      ___         ____  ______
+    | | /| / (_)__  ___/ / / / /  _/
+    | |/ |/ / / _ \/ _  / /_/ // /  
+    |__/|__/_/_//_/\_,_/\____/___/
+    
+    v1.6.66  |  2026-10-07  |  Roblox UI Library for scripts
+    
+    To view the source code, see the `src/` folder on the official GitHub repository.
+    
+    Author: Footagesus (Footages, .ftgs, oftgs)
+    Github: https://github.com/Footagesus/WindUI
+    Discord: https://discord.gg/ftgs-development-hub-1300692552005189632
+    License: MIT
+]]
+
 type ConfigType__DARKLUA_TYPE_a={
 Object:Instance,
 Camera:Instance?,
@@ -39975,93 +39991,221 @@ Window:Tag({
 })
 
 -- HOME TAB
-local HomeTab = Window:Tab({
-    Title = "Home",
-    Icon = "house",
-})
-
-HomeTab:Section({ Title = "Welcome to VANTA HUB" })
+local HomeTab = Window:Tab({ Title = "Home", Icon = "house" })
+HomeTab:Section({ Title = "Welcome to VANTA HUB", Box = true, Opened = true })
 HomeTab:Paragraph({
     Title = "VANTA HUB",
-    Desc = "A unified black-and-red interface. Created by Zyven.",
+    Desc = "Unified black-and-red interface. Game-specific menus are added separately when supported.",
 })
 HomeTab:Paragraph({
-    Title = "Integration note",
-    Desc = "Move your existing script features into the callbacks in this template. This starter does not include game-specific features.",
+    Title = "Compatibility",
+    Desc = "Features that require executor-specific APIs may be unavailable. Unsupported features should be disabled individually rather than crashing the hub.",
 })
 
--- FEATURES TAB
-local FeaturesTab = Window:Tab({
-    Title = "Features",
-    Icon = "sliders-horizontal",
-})
-
-FeaturesTab:Section({ Title = "Feature integration examples" })
-
-FeaturesTab:Toggle({
-    Title = "Example toggle",
-    Desc = "Replace this callback with one of your existing feature functions.",
-    Value = false,
-    Callback = function(enabled)
-        -- TODO: connect your existing feature here, e.g. setFeatureEnabled(enabled)
-        print("[VANTA HUB] Example toggle:", enabled)
-    end,
-})
-
-FeaturesTab:Slider({
-    Title = "Example slider",
-    Desc = "Replace this with a setting used by your script.",
-    Step = 1,
-    Value = { Min = 1, Max = 100, Default = 25 },
-    Callback = function(value)
-        -- TODO: connect this value to your existing script setting.
-        print("[VANTA HUB] Example slider:", value)
-    end,
-})
-
-FeaturesTab:Button({
-    Title = "Example action",
-    Icon = "play",
-    Callback = function()
-        -- TODO: call an existing function from your script here.
-        WindUI:Notify({
-            Title = "VANTA HUB",
-            Content = "Connect this button to your own script function.",
-        })
-    end,
-})
-
--- SETTINGS TAB
-local SettingsTab = Window:Tab({
-    Title = "Settings",
-    Icon = "settings",
-})
-
-SettingsTab:Section({ Title = "Interface" })
-SettingsTab:Button({
-    Title = "Show UI information",
-    Icon = "info",
-    Callback = function()
-        WindUI:Notify({
-            Title = "VANTA HUB",
-            Content = "VANTA HUB UI • Created by Zyven",
-        })
-    end,
-})
-
--- ABOUT TAB
-local AboutTab = Window:Tab({
-    Title = "About",
-    Icon = "badge-info",
-})
-
+local AboutTab = Window:Tab({ Title = "About", Icon = "badge-info" })
 AboutTab:Paragraph({
     Title = "VANTA HUB",
-    Desc = "Black and red UI • Created by Zyven",
+    Desc = "Black and red UI • Created by Zyven. WindUI by Footagesus is bundled under its MIT License; retain its copyright notice when redistributing.",
 })
-AboutTab:Paragraph({
-    Title = "Credits",
-    Desc = "This file bundles WindUI by Footagesus under the MIT License. Preserve its copyright and license notice when redistributing.",
-})
+
+-- Legacy API bridge. This lets a migrated game keep its feature logic while its
+-- controls are rendered by the already-created VANTA/WindUI window.
+local function BuildLegacyAdapter(gameTitle)
+    local Library = { Options = {}, _unload = {}, _alive = true, _tabs = {} }
+    local function safeCall(fn, ...)
+        if type(fn) ~= "function" then return nil end
+        local ok, result = pcall(fn, ...)
+        if not ok then warn("[VANTA] UI callback failed:", result) end
+        return result
+    end
+    local function makeOption(control, initial)
+        local option = { Value = initial, Control = control }
+        function option:SetValue(value)
+            self.Value = value
+            if self.Control and type(self.Control.Set) == "function" then
+                safeCall(self.Control.Set, self.Control, value)
+            end
+        end
+        function option:Lock()
+            if self.Control and self.Control.Lock then safeCall(self.Control.Lock, self.Control) end
+        end
+        function option:Unlock()
+            if self.Control and self.Control.Unlock then safeCall(self.Control.Unlock, self.Control) end
+        end
+        return option
+    end
+    local function createGroup(tab, title, icon)
+        local section = tab:Section({ Title = tostring(title or "Options"), Icon = icon, Box = true, BoxBorder = true, Opened = true })
+        local group = { _container = section, _tab = tab }
+        function group:AddToggle(key, info)
+            info = info or {}
+            local state = info.Default == true
+            local option
+            local control = self._container:Toggle({
+                Title = info.Text or tostring(key), Desc = info.Description,
+                Value = state, Flag = "vanta_" .. tostring(gameTitle) .. "_" .. tostring(key),
+                Callback = function(value)
+                    if option then option.Value = value end
+                    safeCall(info.Callback, value)
+                end,
+            })
+            option = makeOption(control, state)
+            Library.Options[key] = option
+            function option:AddKeyPicker(keyName, spec)
+                spec = spec or {}
+                local bindValue = spec.Default
+                if bindValue == nil or bindValue == "None" then bindValue = "None" end
+                local keyControl = group._container and group._container:Keybind({
+                    Title = (info.Text or tostring(key)) .. " key",
+                    Desc = "Press the assigned key to toggle this feature",
+                    Value = bindValue,
+                    CanChange = true,
+                    Callback = function()
+                        option:SetValue(not option.Value)
+                    end,
+                })
+                option.KeyControl = keyControl
+                return option
+            end
+            return option
+        end
+        function group:AddButton(info)
+            info = info or {}
+            return self._container:Button({
+                Title = info.Text or info.Name or "Action", Desc = info.Description,
+                Icon = info.Icon, Callback = function() safeCall(info.Func or info.Callback) end,
+            })
+        end
+        function group:AddSlider(key, info)
+            info = info or {}
+            local initial = tonumber(info.Default) or tonumber(info.Min) or 0
+            local option
+            local control = self._container:Slider({
+                Title = info.Text or tostring(key), Desc = info.Description,
+                Step = info.Rounding and (10 ^ -info.Rounding) or 1,
+                Value = { Min = info.Min or 0, Max = info.Max or 100, Default = initial },
+                Flag = "vanta_" .. tostring(gameTitle) .. "_" .. tostring(key),
+                Callback = function(value) if option then option.Value = value end; safeCall(info.Callback, value) end,
+            })
+            option = makeOption(control, initial)
+            Library.Options[key] = option
+            return option
+        end
+        function group:AddDropdown(key, info)
+            info = info or {}
+            local values = info.Values or {}
+            local initial = info.Default
+            if type(initial) == "number" then initial = values[initial] end
+            if info.Multi and type(initial) ~= "table" then initial = {} end
+            local option
+            local control = self._container:Dropdown({
+                Title = info.Text or tostring(key), Desc = info.Description,
+                Values = values, Value = initial, Multi = info.Multi == true,
+                AllowNone = info.Multi == true, SearchBarEnabled = info.Searchable == true,
+                Flag = "vanta_" .. tostring(gameTitle) .. "_" .. tostring(key),
+                Callback = function(value) if option then option.Value = value end; safeCall(info.Callback, value) end,
+            })
+            option = makeOption(control, initial)
+            Library.Options[key] = option
+            return option
+        end
+        function group:AddInput(key, info)
+            info = info or {}
+            local initial = info.Default or ""
+            local option
+            local control = self._container:Input({
+                Title = info.Text or tostring(key), Desc = info.Description,
+                Placeholder = info.Placeholder or "", Value = initial,
+                Callback = function(value) if option then option.Value = value end; safeCall(info.Callback, value) end,
+            })
+            option = makeOption(control, initial)
+            Library.Options[key] = option
+            return option
+        end
+        function group:AddParagraph(info)
+            info = info or {}
+            return self._container:Paragraph({ Title = info.Title or "Info", Desc = info.Content or info.Description or "" })
+        end
+        function group:AddLabel(text)
+            local label = self._container:Paragraph({ Title = tostring(text or ""), Desc = "" })
+            local wrapper = {}
+            function wrapper:SetText(value)
+                if label and label.SetTitle then safeCall(label.SetTitle, label, tostring(value)) end
+            end
+            return wrapper
+        end
+        return group
+    end
+    local function wrapTab(tab)
+        local adapter = { _tab = tab }
+        function adapter:AddLeftGroupbox(title, icon) return createGroup(self._tab, title, icon) end
+        function adapter:AddRightGroupbox(title, icon) return createGroup(self._tab, title, icon) end
+        return adapter
+    end
+    local WindowAdapter = {}
+    function WindowAdapter:AddTabSection(_) end
+    function WindowAdapter:AddTab(title, icon, description)
+        local tab = Window:Tab({ Title = tostring(title), Icon = icon, Desc = description })
+        table.insert(Library._tabs, tab)
+        return wrapTab(tab)
+    end
+    function WindowAdapter:AddSettingsTab()
+        local tab = Window:Tab({ Title = "Settings", Icon = "settings" })
+        table.insert(Library._tabs, tab)
+        return wrapTab(tab)
+    end
+    Library.Window = WindowAdapter
+    function Library:T(english, _) return english end
+    function Library:Notify(title, message, duration, kind)
+        safeCall(WindUI.Notify, WindUI, {
+            Title = tostring(title or gameTitle), Content = tostring(message or ""),
+            Duration = duration or 4, Icon = kind == "Error" and "circle-x" or (kind == "Warning" and "triangle-alert" or "info"),
+        })
+    end
+    function Library:Every(seconds, callback)
+        task.spawn(function()
+            while self._alive do
+                task.wait(seconds)
+                if self._alive then safeCall(callback) end
+            end
+        end)
+    end
+    function Library:OnUnload(callback)
+        table.insert(self._unload, callback)
+    end
+    function Library:Unload()
+        if not self._alive then return end
+        self._alive = false
+        for index = #self._unload, 1, -1 do safeCall(self._unload[index]) end
+        for index = #self._tabs, 1, -1 do
+            local tab = self._tabs[index]
+            if tab and type(tab.Destroy) == "function" then safeCall(tab.Destroy, tab) end
+        end
+        table.clear(self._tabs)
+        table.clear(self._unload)
+    end
+    function Library:LoadAutoloadConfig()
+        -- WindUI config migration is intentionally not auto-loaded yet; old config
+        -- schemas need explicit mapping before it is safe to import them.
+    end
+    Library.Compat = { Block = function(key, reason)
+        local option = Library.Options[key]
+        if option then option:Lock() end
+        if reason then warn("[VANTA] Disabled " .. tostring(key) .. ": " .. tostring(reason)) end
+    end }
+    function Library:CreateWindow(config)
+        self.Config = config or {}
+        if type(self.Config.OnUnlocked) == "function" then
+            task.defer(function() safeCall(self.Config.OnUnlocked) end)
+        end
+        return WindowAdapter
+    end
+    return Library
+end
+
+local sharedEnv = (type(getgenv) == "function" and getgenv()) or _G
+sharedEnv.VANTA_WINDUI = WindUI
+sharedEnv.VANTA_WINDOW = Window
+sharedEnv.VANTA_LEGACY_ADAPTER = BuildLegacyAdapter
 
 return Window
